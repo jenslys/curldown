@@ -1,0 +1,35 @@
+{
+  "name": "curldown",
+  "version": "0.1.0",
+  "description": "Fetch URL content and convert it to markdown.",
+  "type": "module",
+  "bin": {
+    "curldown": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm run test"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "commander": "^14.0.3",
+    "playwright": "^1.58.2",
+    "turndown": "^7.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
