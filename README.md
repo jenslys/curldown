@@ -13,10 +13,6 @@ Fetch a webpage and return clean Markdown.
 npm install -g @jenslys/curldown
 ```
 
-```bash
-bun add -g @jenslys/curldown
-```
-
 ## Quick Start
 
 ```bash
@@ -69,12 +65,3 @@ Paste this into your `AGENTS.md` if you want agents to always use `curldown` for
 - Prefer stdout output unless a task explicitly requires a file (`--output <path>`).
 - Do not use ad-hoc HTML scraping or direct browser automation when `curldown` can handle it.
 ```
-
-## Exit Codes
-
-- `0` success
-- `1` input/usage error
-- `2` static fetch/network error
-- `3` dynamic render/browser error
-- `4` output write error
-- `5` conversion pipeline error
