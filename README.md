@@ -10,7 +10,11 @@ Fetch a webpage and return clean Markdown.
 ## Install
 
 ```bash
-npm install -g curldown
+npm install -g @jenslys/curldown
+```
+
+```bash
+bun add -g @jenslys/curldown
 ```
 
 ## Quick Start

@@ -49,6 +49,7 @@ jobs:
 
           PACKAGE_NAME=$(node -p "require('./package.json').name || ''")
           NEW_VERSION=$(node -p "require('./package.json').version || ''")
+          OLD_NAME=""
           OLD_VERSION=""
           CHANGED="false"
 
@@ -62,15 +63,17 @@ jobs:
           else
             BEFORE_SHA="${{ github.event.before }}"
             if [ -n "$BEFORE_SHA" ] && git cat-file -e "${BEFORE_SHA}:package.json" 2>/dev/null; then
+              OLD_NAME=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).name||'')}catch{console.log('')}})")
               OLD_VERSION=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).version||'')}catch{console.log('')}})")
             fi
 
-            if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+            if [ "$OLD_NAME" != "$PACKAGE_NAME" ] || [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
               CHANGED="true"
             fi
           fi
 
           echo "name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "old_name=${OLD_NAME}" >> "$GITHUB_OUTPUT"
           echo "old=${OLD_VERSION}" >> "$GITHUB_OUTPUT"
           echo "new=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
@@ -78,7 +81,7 @@ jobs:
       - name: Skip when version is unchanged
         if: ${{ steps.version.outputs.changed != 'true' }}
         run: |
-          echo "Version unchanged: ${{ steps.version.outputs.old }} -> ${{ steps.version.outputs.new }}. Skipping publish."
+          echo "Package unchanged (name/version): ${{ steps.version.outputs.old_name }}@${{ steps.version.outputs.old }} -> ${{ steps.version.outputs.name }}@${{ steps.version.outputs.new }}. Skipping publish."
 
       - name: Check if version already exists on npm
         if: ${{ steps.version.outputs.changed == 'true' }}
