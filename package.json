@@ -2,6 +2,14 @@
   "name": "@jenslys/curldown",
   "version": "1.0.0",
   "description": "Fetch URL content and convert it to markdown.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jenslys/curldown"
+  },
+  "homepage": "https://github.com/jenslys/curldown",
+  "bugs": {
+    "url": "https://github.com/jenslys/curldown/issues"
+  },
   "type": "module",
   "bin": {
     "curldown": "dist/cli.js"

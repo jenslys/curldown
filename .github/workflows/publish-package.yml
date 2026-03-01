@@ -42,52 +42,25 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - name: Determine version change
-        id: version
+      - name: Read package metadata
+        id: pkg
         run: |
           set -euo pipefail
-
           PACKAGE_NAME=$(node -p "require('./package.json').name || ''")
-          NEW_VERSION=$(node -p "require('./package.json').version || ''")
-          OLD_NAME=""
-          OLD_VERSION=""
-          CHANGED="false"
+          PACKAGE_VERSION=$(node -p "require('./package.json').version || ''")
 
-          if [ -z "$PACKAGE_NAME" ] || [ -z "$NEW_VERSION" ]; then
+          if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_VERSION" ]; then
             echo "package.json must include name and version" >&2
             exit 1
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            CHANGED="true"
-          else
-            BEFORE_SHA="${{ github.event.before }}"
-            if [ -n "$BEFORE_SHA" ] && git cat-file -e "${BEFORE_SHA}:package.json" 2>/dev/null; then
-              OLD_NAME=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).name||'')}catch{console.log('')}})")
-              OLD_VERSION=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).version||'')}catch{console.log('')}})")
-            fi
-
-            if [ "$OLD_NAME" != "$PACKAGE_NAME" ] || [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
-              CHANGED="true"
-            fi
-          fi
-
           echo "name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
-          echo "old_name=${OLD_NAME}" >> "$GITHUB_OUTPUT"
-          echo "old=${OLD_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "new=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
-
-      - name: Skip when version is unchanged
-        if: ${{ steps.version.outputs.changed != 'true' }}
-        run: |
-          echo "Package unchanged (name/version): ${{ steps.version.outputs.old_name }}@${{ steps.version.outputs.old }} -> ${{ steps.version.outputs.name }}@${{ steps.version.outputs.new }}. Skipping publish."
+          echo "version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Check if version already exists on npm
-        if: ${{ steps.version.outputs.changed == 'true' }}
         id: npm-check
         run: |
-          if npm view "${{ steps.version.outputs.name }}@${{ steps.version.outputs.new }}" version >/dev/null 2>&1; then
+          if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Version already published on npm. Skipping."
           else
@@ -95,23 +68,23 @@ jobs:
           fi
 
       - name: Install dependencies
-        if: ${{ steps.version.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.npm-check.outputs.exists != 'true' }}
         run: bun install --frozen-lockfile
 
       - name: Verify types
-        if: ${{ steps.version.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.npm-check.outputs.exists != 'true' }}
         run: bun run typecheck
 
       - name: Run tests
-        if: ${{ steps.version.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.npm-check.outputs.exists != 'true' }}
         run: bun run test
 
       - name: Build package
-        if: ${{ steps.version.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.npm-check.outputs.exists != 'true' }}
         run: bun run build
 
       - name: Publish to npm
-        if: ${{ steps.version.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.npm-check.outputs.exists != 'true' }}
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
