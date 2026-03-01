@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { Command, CommanderError } from "commander";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   DEFAULT_DYNAMIC_TIMEOUT_MS,
@@ -367,8 +368,29 @@ export async function run(argv: string[], deps: RunDependencies = defaultDepende
   }
 }
 
-const isMain =
-  process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
+function resolvePathStrict(pathInput: string): string {
+  return realpathSync(pathInput);
+}
+
+/**
+ * Determine whether this module was invoked as the CLI entrypoint.
+ * Resolves symlinks for both paths so global installs that expose a symlinked bin still execute.
+ */
+export function isMainModule(argvPath: string | undefined = process.argv[1]): boolean {
+  if (argvPath === undefined) {
+    return false;
+  }
+
+  try {
+    const invokedPath = resolvePathStrict(argvPath);
+    const modulePath = resolvePathStrict(fileURLToPath(import.meta.url));
+    return invokedPath === modulePath;
+  } catch {
+    return pathToFileURL(argvPath).href === import.meta.url;
+  }
+}
+
+const isMain = isMainModule();
 
 if (isMain) {
   void run(process.argv.slice(2)).then((exitCode) => {
