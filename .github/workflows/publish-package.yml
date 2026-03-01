@@ -6,11 +6,6 @@ on:
       - main
     paths:
       - package.json
-      - bun.lock
-      - src/**
-      - tsconfig.json
-      - tsconfig.build.json
-      - README.md
       - .github/workflows/publish-package.yml
   workflow_dispatch:
 
@@ -48,17 +43,45 @@ jobs:
           set -euo pipefail
           PACKAGE_NAME=$(node -p "require('./package.json').name || ''")
           PACKAGE_VERSION=$(node -p "require('./package.json').version || ''")
+          OLD_NAME=""
+          OLD_VERSION=""
+          CHANGED="false"
 
           if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_VERSION" ]; then
             echo "package.json must include name and version" >&2
             exit 1
           fi
 
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED="true"
+          else
+            BEFORE_SHA="${{ github.event.before }}"
+            if [ -n "$BEFORE_SHA" ] && git cat-file -e "${BEFORE_SHA}:package.json" 2>/dev/null; then
+              OLD_NAME=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const p=JSON.parse(d);console.log(p.name||'');}catch{console.log('')}})")
+              OLD_VERSION=$(git show "${BEFORE_SHA}:package.json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const p=JSON.parse(d);console.log(p.version||'');}catch{console.log('')}})")
+            fi
+
+            if [ "$OLD_NAME" != "$PACKAGE_NAME" ] || [ "$OLD_VERSION" != "$PACKAGE_VERSION" ]; then
+              CHANGED="true"
+            fi
+          fi
+
           echo "name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "old_name=${OLD_NAME}" >> "$GITHUB_OUTPUT"
+          echo "old_version=${OLD_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when package metadata is unchanged
+        if: ${{ steps.pkg.outputs.changed != 'true' }}
+        run: |
+          echo "No package name/version change detected."
+          echo "Current: ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}"
+          echo "Previous: ${{ steps.pkg.outputs.old_name }}@${{ steps.pkg.outputs.old_version }}"
 
       - name: Check if version already exists on npm
         id: npm-check
+        if: ${{ steps.pkg.outputs.changed == 'true' }}
         run: |
           if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -68,23 +91,23 @@ jobs:
           fi
 
       - name: Install dependencies
-        if: ${{ steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.pkg.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
         run: bun install --frozen-lockfile
 
       - name: Verify types
-        if: ${{ steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.pkg.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
         run: bun run typecheck
 
       - name: Run tests
-        if: ${{ steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.pkg.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
         run: bun run test
 
       - name: Build package
-        if: ${{ steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.pkg.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
         run: bun run build
 
       - name: Publish to npm
-        if: ${{ steps.npm-check.outputs.exists != 'true' }}
+        if: ${{ steps.pkg.outputs.changed == 'true' && steps.npm-check.outputs.exists != 'true' }}
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
