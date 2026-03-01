@@ -10,7 +10,7 @@ import type { WriteOutputInput } from "./types.js";
 export async function writeOutput(input: WriteOutputInput): Promise<void> {
   if (input.outputPath) {
     try {
-      await writeFile(input.outputPath, input.markdown, "utf8");
+      await writeFile(input.outputPath, input.content, "utf8");
       return;
     } catch (error) {
       throw new OutputError(
@@ -21,7 +21,7 @@ export async function writeOutput(input: WriteOutputInput): Promise<void> {
   }
 
   try {
-    process.stdout.write(input.markdown);
+    process.stdout.write(input.content);
   } catch (error) {
     throw new OutputError(
       `Failed writing markdown to stdout: ${error instanceof Error ? error.message : String(error)}`,

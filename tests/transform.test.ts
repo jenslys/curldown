@@ -14,8 +14,7 @@ describe("transformHtmlToMarkdown", () => {
             <p>Hello <strong>world</strong></p>
           </body>
         </html>
-      `,
-      removeSelectors: []
+      `
     });
 
     expect(markdown).toContain("# Title");
@@ -23,26 +22,22 @@ describe("transformHtmlToMarkdown", () => {
     expect(markdown).not.toContain("alert");
   });
 
-  it("removes user-provided selectors", () => {
+  it("uses GFM strikethrough conversion", () => {
     const markdown = transformHtmlToMarkdown({
       html: `
         <body>
-          <article><p>Keep this</p></article>
-          <div class="cookie-banner"><p>Drop this</p></div>
+          <p><del>Deprecated</del> feature</p>
         </body>
-      `,
-      removeSelectors: [".cookie-banner"]
+      `
     });
 
-    expect(markdown).toContain("Keep this");
-    expect(markdown).not.toContain("Drop this");
+    expect(markdown).toContain("~~Deprecated~~ feature");
   });
 
   it("fails when body content is empty after cleanup", () => {
     expect(() =>
       transformHtmlToMarkdown({
-        html: "<html><body><script>1</script></body></html>",
-        removeSelectors: []
+        html: "<html><body><script>1</script></body></html>"
       })
     ).toThrow(ConversionError);
   });

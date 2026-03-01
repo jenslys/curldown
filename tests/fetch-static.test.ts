@@ -53,14 +53,15 @@ describe("fetchStaticHtml", () => {
     servers.push(server);
 
     const address = server.address() as AddressInfo;
-    const html = await fetchStaticHtml({
+    const result = await fetchStaticHtml({
       url: `http://127.0.0.1:${address.port}`,
       timeoutMs: 5_000,
-      userAgent: "curldown-test",
       headers: {}
     });
 
-    expect(html).toContain("<h1>Hello</h1>");
+    expect(result.body).toContain("<h1>Hello</h1>");
+    expect(result.status).toBe(200);
+    expect(result.contentType).toContain("text/html");
   });
 
   it("fails on non-2xx responses", async () => {
@@ -76,7 +77,6 @@ describe("fetchStaticHtml", () => {
       fetchStaticHtml({
         url: `http://127.0.0.1:${address.port}`,
         timeoutMs: 5_000,
-        userAgent: "curldown-test",
         headers: {}
       })
     ).rejects.toBeInstanceOf(FetchError);

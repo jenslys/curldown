@@ -1,15 +1,12 @@
 import { FetchError } from "./errors.js";
-import type { FetchInput } from "./types.js";
+import type { FetchInput, FetchResult } from "./types.js";
 
 /**
  * Fetch raw HTML using Node's native fetch implementation.
  * Throws {@link FetchError} for transport, status, or body-read failures.
  */
-export async function fetchStaticHtml(input: FetchInput): Promise<string> {
+export async function fetchStaticHtml(input: FetchInput): Promise<FetchResult> {
   const headers = new Headers(input.headers);
-  if (input.userAgent) {
-    headers.set("user-agent", input.userAgent);
-  }
 
   let response: Response;
   try {
@@ -32,7 +29,13 @@ export async function fetchStaticHtml(input: FetchInput): Promise<string> {
   }
 
   try {
-    return await response.text();
+    const body = await response.text();
+    return {
+      body,
+      finalUrl: response.url || input.url,
+      status: response.status,
+      contentType: response.headers.get("content-type") ?? undefined
+    };
   } catch (error) {
     throw new FetchError(
       `Failed reading response body for ${input.url}: ${error instanceof Error ? error.message : String(error)}`,

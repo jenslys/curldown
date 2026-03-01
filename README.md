@@ -1,11 +1,13 @@
 # curldown
 
-Fetch a webpage and return clean Markdown.
+Fetch a webpage and return clean Markdown for AI workflows.
 
-`curldown` is a CLI-first tool for AI agents and scripts:
+`curldown` is CLI-first:
 
 - Static mode: `fetch` HTML -> Cheerio cleanup -> Turndown markdown.
 - Dynamic mode: headless Chromium (Playwright) -> HTML -> markdown.
+- `--auto` tries static first and falls back to dynamic when static output is thin.
+- `--format json` emits markdown plus metadata for agent pipelines.
 
 ## Install
 
@@ -22,7 +24,13 @@ curldown https://example.com
 # JS-heavy pages
 curldown https://example.com --dynamic
 
-# Write to file
+# Auto fallback to dynamic when static output looks incomplete
+curldown https://example.com --auto
+
+# JSON output for AI pipelines
+curldown https://example.com --format json
+
+# Write output to a file
 curldown https://example.com --output page.md
 ```
 
@@ -34,14 +42,29 @@ curldown <url> [options]
 
 ## Options
 
+- `--auto` Try static first and fallback to dynamic when static output is thin.
 - `--dynamic` Use Playwright Chromium to render before extraction.
-- `-o, --output <path>` Write markdown to file instead of stdout.
+- `--format <type>` Output format: `markdown` (default) or `json`.
+- `-o, --output <path>` Write output to file instead of stdout.
 - `--timeout-ms <number>` Request/render timeout in milliseconds.
-- `--user-agent <string>` Override request user-agent.
 - `--header <key:value>` Custom request header (repeatable).
-- `--remove-selector <css>` Remove selector(s) before conversion (repeatable).
 - `--help` Show help.
 - `--version` Show version.
+
+## JSON Output Shape
+
+`--format json` returns:
+
+- `url`
+- `final_url`
+- `title`
+- `markdown`
+- `content_type`
+- `status`
+- `fetched_at`
+- `word_count`
+- `sha256`
+- `used_dynamic`
 
 ## Local Development
 
@@ -61,7 +84,8 @@ Paste this into your `AGENTS.md` if you want agents to always use `curldown` for
 
 - Always use `curldown` to fetch web pages for agent workflows.
 - Default command: `curldown <url>`.
-- If the page is JS-rendered or incomplete, retry with: `curldown <url> --dynamic`.
+- Prefer `curldown <url> --auto` when page rendering might be uncertain.
+- Use `curldown <url> --format json` when downstream steps need structured metadata.
 - Prefer stdout output unless a task explicitly requires a file (`--output <path>`).
 - Do not use ad-hoc HTML scraping or direct browser automation when `curldown` can handle it.
 ```

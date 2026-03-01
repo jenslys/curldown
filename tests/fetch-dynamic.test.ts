@@ -18,9 +18,12 @@ describe("fetchDynamicHtml", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    goto.mockResolvedValue(undefined);
+    goto.mockResolvedValue({
+      status: () => 200,
+      headers: () => ({ "content-type": "text/html; charset=utf-8" })
+    });
     content.mockResolvedValue("<html><body><h1>Rendered</h1></body></html>");
-    newPage.mockResolvedValue({ goto, content });
+    newPage.mockResolvedValue({ goto, content, url: () => "https://example.com/final" });
     closeContext.mockResolvedValue(undefined);
     newContext.mockResolvedValue({ newPage, close: closeContext });
     closeBrowser.mockResolvedValue(undefined);
@@ -30,17 +33,18 @@ describe("fetchDynamicHtml", () => {
   it("renders and returns page HTML", async () => {
     const { fetchDynamicHtml } = await import("../src/fetch-dynamic.js");
 
-    const html = await fetchDynamicHtml({
+    const result = await fetchDynamicHtml({
       url: "https://example.com",
       timeoutMs: 10_000,
-      userAgent: "curldown-test",
       headers: { "x-test": "1" }
     });
 
-    expect(html).toContain("Rendered");
+    expect(result.body).toContain("Rendered");
+    expect(result.status).toBe(200);
+    expect(result.contentType).toContain("text/html");
+    expect(result.finalUrl).toBe("https://example.com/final");
     expect(launch).toHaveBeenCalledTimes(1);
     expect(newContext).toHaveBeenCalledWith({
-      userAgent: "curldown-test",
       extraHTTPHeaders: { "x-test": "1" }
     });
     expect(goto).toHaveBeenCalledWith("https://example.com", {
