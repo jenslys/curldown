@@ -1,6 +1,6 @@
 {
   "name": "curldown",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Fetch URL content and convert it to markdown.",
   "type": "module",
   "bin": {
