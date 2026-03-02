@@ -49,6 +49,16 @@ const MARKDOWN_CONTENT_TYPES = new Set([
   "application/markdown",
   "application/x-markdown"
 ]);
+const PLAINTEXT_CONTENT_TYPE = "text/plain";
+const MARKDOWN_FILE_EXTENSIONS = [
+  ".md",
+  ".markdown",
+  ".mdown",
+  ".mkd",
+  ".mkdn",
+  ".mdtxt",
+  ".mdx"
+];
 
 const defaultDependencies: RunDependencies = {
   fetchStatic: fetchStaticHtml,
@@ -168,6 +178,35 @@ function isMarkdownContentType(contentType: string | undefined): boolean {
   return MARKDOWN_CONTENT_TYPES.has(normalized);
 }
 
+function isPlainTextContentType(contentType: string | undefined): boolean {
+  if (!contentType) {
+    return false;
+  }
+
+  const normalized = contentType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return normalized === PLAINTEXT_CONTENT_TYPE;
+}
+
+function hasMarkdownFileExtension(urlValue: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(urlValue).pathname;
+  } catch {
+    return false;
+  }
+
+  const normalizedPath = pathname.toLowerCase();
+  return MARKDOWN_FILE_EXTENSIONS.some((extension) => normalizedPath.endsWith(extension));
+}
+
+function shouldTreatAsMarkdownPassthrough(result: FetchResult): boolean {
+  if (isMarkdownContentType(result.contentType)) {
+    return true;
+  }
+
+  return isPlainTextContentType(result.contentType) && hasMarkdownFileExtension(result.finalUrl);
+}
+
 function countWords(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -240,7 +279,7 @@ function prepareContentFromFetchResult(
   result: FetchResult,
   deps: RunDependencies
 ): PreparedContent {
-  if (isMarkdownContentType(result.contentType)) {
+  if (shouldTreatAsMarkdownPassthrough(result)) {
     const markdown = normalizeMarkdown(result.body);
     return {
       markdown,

@@ -7,6 +7,7 @@ Fetch a webpage and return clean Markdown for AI workflows.
 - Static mode: `fetch` HTML -> Cheerio cleanup -> Turndown markdown.
 - Dynamic mode: headless Chromium (Playwright) -> HTML -> markdown.
 - `--auto` tries static first and falls back to dynamic when static output is thin.
+- Direct markdown responses are passed through (including `.md` URLs served as `text/plain`).
 - `--format json` emits markdown plus metadata for agent pipelines.
 
 ## Install
@@ -82,7 +83,8 @@ Paste this into your `AGENTS.md` if you want agents to always use `curldown` for
 ```md
 ## Website Content Retrieval
 
-- Always use `curldown` to fetch web pages for agent workflows.
+- Use `curldown` for website/article page retrieval in agent workflows.
+- Do not use `curldown` for raw code files or repository file blobs (for those, fetch the file directly).
 - Default command: `curldown <url>`.
 - Prefer `curldown <url> --auto` when page rendering might be uncertain.
 - Use `curldown <url> --format json` when downstream steps need structured metadata.

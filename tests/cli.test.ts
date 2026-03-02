@@ -132,6 +132,49 @@ describe("run", () => {
     expect(output).toContain("# Source Markdown");
   });
 
+  it("passes through text/plain markdown files by url extension", async () => {
+    const deps = createDeps({
+      fetchStatic: vi.fn(async () => ({
+        body: "# Raw Markdown\n\nBody text.\n",
+        finalUrl: "https://raw.githubusercontent.com/org/repo/main/README.md",
+        status: 200,
+        contentType: "text/plain; charset=utf-8"
+      })),
+      transformHtmlToMarkdown: vi.fn(() => {
+        throw new Error("should not run transform for plain text markdown passthrough");
+      })
+    });
+
+    const exitCode = await run(["https://example.com"], deps);
+
+    expect(exitCode).toBe(0);
+    expect(deps.transformHtmlToMarkdown).not.toHaveBeenCalled();
+    const output = vi.mocked(deps.writeOutput).mock.calls[0]?.[0]?.content;
+    expect(output).toContain("# Raw Markdown");
+  });
+
+  it("does not fallback in auto mode for text/plain markdown files by url extension", async () => {
+    const deps = createDeps({
+      fetchStatic: vi.fn(async () => ({
+        body: "# Raw Markdown\n\nBody text.\n",
+        finalUrl: "https://raw.githubusercontent.com/org/repo/main/README.md",
+        status: 200,
+        contentType: "text/plain; charset=utf-8"
+      })),
+      transformHtmlToMarkdown: vi.fn(() => {
+        throw new Error("should not run transform for plain text markdown passthrough");
+      })
+    });
+
+    const exitCode = await run(["https://example.com", "--auto"], deps);
+
+    expect(exitCode).toBe(0);
+    expect(deps.fetchDynamic).not.toHaveBeenCalled();
+    expect(deps.transformHtmlToMarkdown).not.toHaveBeenCalled();
+    const output = vi.mocked(deps.writeOutput).mock.calls[0]?.[0]?.content;
+    expect(output).toContain("# Raw Markdown");
+  });
+
   it("emits JSON output when --format json is used", async () => {
     const deps = createDeps();
 
