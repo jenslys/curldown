@@ -1,64 +1,16 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { Command, CommanderError } from "commander";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { CommanderError } from "commander";
 
-import {
-  DEFAULT_DYNAMIC_TIMEOUT_MS,
-  DEFAULT_STATIC_TIMEOUT_MS,
-  VERSION
-} from "./constants.js";
-import { asCurldownError, ConversionError, InputError } from "./errors.js";
+import { buildProgram, normalizeArgs } from "./cli-args.js";
+import { formatOutput, prepareContentFromFetchResult, shouldAutoFallback } from "./cli-content.js";
+import { isMainModuleFor } from "./cli-main-module.js";
+import { asCurldownError } from "./errors.js";
 import { fetchDynamicHtml } from "./fetch-dynamic.js";
 import { fetchStaticHtml } from "./fetch-static.js";
 import { writeOutput } from "./output.js";
-import { extractHtmlTitle, transformHtmlToMarkdown } from "./transform.js";
-import type {
-  CliArgs,
-  ExitCode,
-  FetchResult,
-  OutputFormat,
-  RunDependencies
-} from "./types.js";
-
-interface RawCliOptions {
-  auto?: boolean;
-  dynamic?: boolean;
-  format?: string;
-  output?: string;
-  timeoutMs?: string;
-  header?: string[];
-}
-
-interface TimeoutConfig {
-  timeoutMs: number;
-  dynamicTimeoutMs: number;
-}
-
-interface PreparedContent {
-  markdown: string;
-  title?: string;
-  source: FetchResult;
-  passthrough: boolean;
-}
-
-const MARKDOWN_CONTENT_TYPES = new Set([
-  "text/markdown",
-  "text/x-markdown",
-  "application/markdown",
-  "application/x-markdown"
-]);
-const PLAINTEXT_CONTENT_TYPE = "text/plain";
-const MARKDOWN_FILE_EXTENSIONS = [
-  ".md",
-  ".markdown",
-  ".mdown",
-  ".mkd",
-  ".mkdn",
-  ".mdtxt",
-  ".mdx"
-];
+import { transformHtmlToMarkdown } from "./transform.js";
+import type { RawCliOptions } from "./cli-args.js";
+import type { ExitCode, RunDependencies } from "./types.js";
 
 const defaultDependencies: RunDependencies = {
   fetchStatic: fetchStaticHtml,
@@ -67,257 +19,6 @@ const defaultDependencies: RunDependencies = {
   writeOutput,
   stderrWrite: (message: string) => process.stderr.write(message)
 };
-
-function collectRepeatable(value: string, previous: string[] = []): string[] {
-  return [...previous, value];
-}
-
-function buildProgram(): Command {
-  return new Command()
-    .name("curldown")
-    .description("Fetch URL content and convert it to markdown.")
-    .version(VERSION)
-    .argument("<url>", "The URL to fetch")
-    .option("--dynamic", "Use headless Chromium (Playwright) to render the page")
-    .option("--auto", "Try static first and fallback to dynamic when static output is thin")
-    .option("--format <type>", "Output format: markdown|json", "markdown")
-    .option("-o, --output <path>", "Write output to a file instead of stdout")
-    .option("--timeout-ms <number>", "Timeout in milliseconds")
-    .option("--header <key:value>", "Set custom request header", collectRepeatable, [])
-    .showHelpAfterError()
-    .exitOverride();
-}
-
-function parseHeaders(rawHeaders: string[]): Record<string, string> {
-  const headers: Record<string, string> = {};
-
-  for (const rawHeader of rawHeaders) {
-    const separatorIndex = rawHeader.indexOf(":");
-    if (separatorIndex <= 0 || separatorIndex === rawHeader.length - 1) {
-      throw new InputError(`Invalid --header value \"${rawHeader}\". Use key:value format.`);
-    }
-
-    const key = rawHeader.slice(0, separatorIndex).trim();
-    const value = rawHeader.slice(separatorIndex + 1).trim();
-
-    if (!key || !value) {
-      throw new InputError(`Invalid --header value \"${rawHeader}\". Header key and value are required.`);
-    }
-
-    headers[key] = value;
-  }
-
-  return headers;
-}
-
-function parseFormat(rawFormat: string): OutputFormat {
-  if (rawFormat === "markdown" || rawFormat === "json") {
-    return rawFormat;
-  }
-
-  throw new InputError(`Invalid --format value \"${rawFormat}\". Use \"markdown\" or \"json\".`);
-}
-
-function parseTimeouts(
-  rawTimeout: string | undefined,
-  dynamic: boolean,
-  auto: boolean
-): TimeoutConfig {
-  if (rawTimeout === undefined) {
-    if (dynamic) {
-      return {
-        timeoutMs: DEFAULT_DYNAMIC_TIMEOUT_MS,
-        dynamicTimeoutMs: DEFAULT_DYNAMIC_TIMEOUT_MS
-      };
-    }
-
-    if (auto) {
-      return {
-        timeoutMs: DEFAULT_STATIC_TIMEOUT_MS,
-        dynamicTimeoutMs: DEFAULT_DYNAMIC_TIMEOUT_MS
-      };
-    }
-
-    return {
-      timeoutMs: DEFAULT_STATIC_TIMEOUT_MS,
-      dynamicTimeoutMs: DEFAULT_DYNAMIC_TIMEOUT_MS
-    };
-  }
-
-  const parsed = Number.parseInt(rawTimeout, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new InputError(`Invalid --timeout-ms value \"${rawTimeout}\". Must be a positive integer.`);
-  }
-
-  return {
-    timeoutMs: parsed,
-    dynamicTimeoutMs: parsed
-  };
-}
-
-function normalizeMarkdown(markdown: string): string {
-  const trimmed = markdown.trim();
-  if (!trimmed) {
-    throw new ConversionError("Content was fetched but markdown output is empty.");
-  }
-
-  return `${trimmed}\n`;
-}
-
-function inferTitleFromMarkdown(markdown: string): string | undefined {
-  const firstHeading = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  return firstHeading || undefined;
-}
-
-function isMarkdownContentType(contentType: string | undefined): boolean {
-  if (!contentType) {
-    return false;
-  }
-
-  const normalized = contentType.toLowerCase().split(";")[0]?.trim() ?? "";
-  return MARKDOWN_CONTENT_TYPES.has(normalized);
-}
-
-function isPlainTextContentType(contentType: string | undefined): boolean {
-  if (!contentType) {
-    return false;
-  }
-
-  const normalized = contentType.toLowerCase().split(";")[0]?.trim() ?? "";
-  return normalized === PLAINTEXT_CONTENT_TYPE;
-}
-
-function hasMarkdownFileExtension(urlValue: string): boolean {
-  let pathname: string;
-  try {
-    pathname = new URL(urlValue).pathname;
-  } catch {
-    return false;
-  }
-
-  const normalizedPath = pathname.toLowerCase();
-  return MARKDOWN_FILE_EXTENSIONS.some((extension) => normalizedPath.endsWith(extension));
-}
-
-function shouldTreatAsMarkdownPassthrough(result: FetchResult): boolean {
-  if (isMarkdownContentType(result.contentType)) {
-    return true;
-  }
-
-  return isPlainTextContentType(result.contentType) && hasMarkdownFileExtension(result.finalUrl);
-}
-
-function countWords(value: string): number {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return 0;
-  }
-
-  return trimmed.split(/\s+/).length;
-}
-
-function shouldAutoFallback(markdown: string): boolean {
-  const trimmed = markdown.trim();
-  if (!trimmed) {
-    return true;
-  }
-
-  const lower = trimmed.toLowerCase();
-  if (/enable javascript|javascript is required|checking your browser|just a moment|please wait/.test(lower)) {
-    return true;
-  }
-
-  const nonEmptyLines = trimmed.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-  return countWords(trimmed) < 30 && nonEmptyLines <= 2;
-}
-
-/**
- * Validate and normalize parsed CLI arguments into the canonical runtime shape.
- * Fails fast with {@link InputError} on malformed input.
- */
-function normalizeArgs(urlInput: string | undefined, options: RawCliOptions): CliArgs {
-  if (!urlInput) {
-    throw new InputError("A URL argument is required.");
-  }
-
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(urlInput);
-  } catch (error) {
-    throw new InputError(`Invalid URL \"${urlInput}\".`, {
-      cause: error instanceof Error ? error : undefined
-    });
-  }
-
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw new InputError(
-      `Unsupported URL protocol \"${parsedUrl.protocol}\". Only http:// and https:// are supported.`
-    );
-  }
-
-  const dynamic = options.dynamic ?? false;
-  const auto = options.auto ?? false;
-  if (dynamic && auto) {
-    throw new InputError("--dynamic and --auto cannot be used together.");
-  }
-
-  const timeouts = parseTimeouts(options.timeoutMs, dynamic, auto);
-
-  return {
-    url: parsedUrl.toString(),
-    auto,
-    dynamic,
-    format: parseFormat(options.format ?? "markdown"),
-    outputPath: options.output,
-    timeoutMs: timeouts.timeoutMs,
-    dynamicTimeoutMs: timeouts.dynamicTimeoutMs,
-    headers: parseHeaders(options.header ?? [])
-  };
-}
-
-function prepareContentFromFetchResult(
-  result: FetchResult,
-  deps: RunDependencies
-): PreparedContent {
-  if (shouldTreatAsMarkdownPassthrough(result)) {
-    const markdown = normalizeMarkdown(result.body);
-    return {
-      markdown,
-      title: inferTitleFromMarkdown(markdown),
-      source: result,
-      passthrough: true
-    };
-  }
-
-  const markdown = deps.transformHtmlToMarkdown({ html: result.body });
-  return {
-    markdown,
-    title: extractHtmlTitle(result.body),
-    source: result,
-    passthrough: false
-  };
-}
-
-function formatOutput(args: CliArgs, content: PreparedContent, usedDynamic: boolean): string {
-  if (args.format === "markdown") {
-    return content.markdown;
-  }
-
-  const payload = {
-    url: args.url,
-    final_url: content.source.finalUrl,
-    title: content.title ?? null,
-    markdown: content.markdown,
-    content_type: content.source.contentType ?? null,
-    status: content.source.status,
-    fetched_at: new Date().toISOString(),
-    word_count: countWords(content.markdown),
-    sha256: createHash("sha256").update(content.markdown).digest("hex"),
-    used_dynamic: usedDynamic
-  };
-
-  return `${JSON.stringify(payload, null, 2)}\n`;
-}
 
 /**
  * Execute one curldown CLI invocation and return process exit code.
@@ -352,7 +53,7 @@ export async function run(argv: string[], deps: RunDependencies = defaultDepende
     const args = normalizeArgs(urlArg, options);
 
     let usedDynamic = false;
-    let content: PreparedContent;
+    let content;
 
     if (args.auto) {
       const staticResult = await deps.fetchStatic({
@@ -407,31 +108,11 @@ export async function run(argv: string[], deps: RunDependencies = defaultDepende
   }
 }
 
-function resolvePathStrict(pathInput: string): string {
-  return realpathSync(pathInput);
-}
-
-/**
- * Determine whether this module was invoked as the CLI entrypoint.
- * Resolves symlinks for both paths so global installs that expose a symlinked bin still execute.
- */
 export function isMainModule(argvPath: string | undefined = process.argv[1]): boolean {
-  if (argvPath === undefined) {
-    return false;
-  }
-
-  try {
-    const invokedPath = resolvePathStrict(argvPath);
-    const modulePath = resolvePathStrict(fileURLToPath(import.meta.url));
-    return invokedPath === modulePath;
-  } catch {
-    return pathToFileURL(argvPath).href === import.meta.url;
-  }
+  return isMainModuleFor(import.meta.url, argvPath);
 }
 
-const isMain = isMainModule();
-
-if (isMain) {
+if (isMainModule()) {
   void run(process.argv.slice(2)).then((exitCode) => {
     process.exitCode = exitCode;
   });
