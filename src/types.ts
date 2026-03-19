@@ -27,6 +27,7 @@ export interface FetchResult {
 
 export interface TransformInput {
   html: string;
+  url?: string;
 }
 
 export interface WriteOutputInput {

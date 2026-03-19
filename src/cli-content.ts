@@ -118,7 +118,10 @@ export function prepareContentFromFetchResult(
     };
   }
 
-  const markdown = deps.transformHtmlToMarkdown({ html: result.body });
+  const markdown = deps.transformHtmlToMarkdown({
+    html: result.body,
+    url: result.finalUrl
+  });
   return {
     markdown,
     title: extractHtmlTitle(result.body),

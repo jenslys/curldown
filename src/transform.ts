@@ -1,4 +1,6 @@
+import { Readability } from "@mozilla/readability";
 import { load } from "cheerio";
+import { JSDOM } from "jsdom";
 import { createRequire } from "node:module";
 import TurndownService from "turndown";
 
@@ -19,24 +21,122 @@ const turndown = new TurndownService({
 });
 turndown.use(turndownPluginGfm.gfm);
 
-/**
- * Convert fetched HTML into markdown.
- * The function removes default non-content nodes before running Turndown
- * with GitHub Flavored Markdown extensions.
- */
-export function transformHtmlToMarkdown(input: TransformInput): string {
-  const $ = load(input.html);
+const FALLBACK_BASE_URL = "https://curldown.local/";
+const PRIMARY_CONTENT_SELECTOR = "main, article, [role='main']";
+const MIN_PRIMARY_CONTENT_TEXT_LENGTH = 200;
+
+function getNormalizedTextLength(value: string | null | undefined): number {
+  return value?.replace(/\s+/g, " ").trim().length ?? 0;
+}
+
+function cleanupFragmentHtml(html: string): string {
+  const $ = load(html);
 
   $(DEFAULT_REMOVE_SELECTORS.join(",")).remove();
 
-  const bodyHtml = $("body").length > 0 ? $("body").html() ?? "" : $.root().html() ?? "";
-  if (bodyHtml.trim().length === 0) {
-    throw new ConversionError("No HTML body content found to convert.");
+  $("img").each((_, element) => {
+    const alt = $(element).attr("alt")?.trim() ?? "";
+    if (!alt) {
+      $(element).remove();
+    }
+  });
+
+  $("a").each((_, element) => {
+    const link = $(element);
+    const textLength = getNormalizedTextLength(link.text());
+    const hasAltImage = link
+      .find("img")
+      .toArray()
+      .some((image) => getNormalizedTextLength($(image).attr("alt")) > 0);
+
+    if (textLength === 0 && !hasAltImage) {
+      link.remove();
+    }
+  });
+
+  return $.root().html() ?? "";
+}
+
+function extractBodyHtml(document: Document): string {
+  return document.body?.innerHTML ?? document.documentElement?.innerHTML ?? "";
+}
+
+function selectSemanticPrimaryHtml(document: Document): string | undefined {
+  const candidates = Array.from(document.querySelectorAll(PRIMARY_CONTENT_SELECTOR));
+  const bestCandidate = candidates
+    .map((element) => ({
+      html: element.innerHTML,
+      textLength: getNormalizedTextLength(element.textContent)
+    }))
+    .filter((candidate) => candidate.textLength > 0)
+    .sort((left, right) => right.textLength - left.textLength)[0];
+
+  if (!bestCandidate || bestCandidate.textLength < MIN_PRIMARY_CONTENT_TEXT_LENGTH) {
+    return undefined;
   }
 
-  const markdown = turndown.turndown(bodyHtml).trim();
-  if (markdown.length === 0) {
-    throw new ConversionError("HTML was fetched but produced empty markdown output.");
+  return bestCandidate.html;
+}
+
+function selectReadabilityHtml(document: Document): string | undefined {
+  const article = new Readability(document).parse();
+  if (!article || getNormalizedTextLength(article.textContent) === 0) {
+    return undefined;
+  }
+
+  return article.content ?? undefined;
+}
+
+function toMarkdownCandidate(html: string | undefined): string | undefined {
+  if (!html) {
+    return undefined;
+  }
+
+  const cleanedHtml = cleanupFragmentHtml(html);
+  if (cleanedHtml.trim().length === 0) {
+    return undefined;
+  }
+
+  const markdown = turndown.turndown(cleanedHtml).trim();
+  return markdown.length > 0 ? markdown : undefined;
+}
+
+function getFirstMeaningfulMarkdownLine(markdown: string): string | undefined {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+}
+
+function startsWithPrimaryHeading(markdown: string): boolean {
+  return /^#\s+\S/.test(getFirstMeaningfulMarkdownLine(markdown) ?? "");
+}
+
+/**
+ * Convert fetched HTML into markdown.
+ * The function prefers semantic primary-content containers, falls back to
+ * Readability for unstructured pages, and only converts the full body when
+ * no stronger content signal exists.
+ */
+export function transformHtmlToMarkdown(input: TransformInput): string {
+  const dom = new JSDOM(input.html, {
+    url: input.url ?? FALLBACK_BASE_URL
+  });
+  const { document } = dom.window;
+
+  const semanticMarkdown = toMarkdownCandidate(selectSemanticPrimaryHtml(document));
+  const readabilityMarkdown = toMarkdownCandidate(
+    selectReadabilityHtml(new JSDOM(input.html, { url: input.url ?? FALLBACK_BASE_URL }).window.document)
+  );
+  const fallbackMarkdown = toMarkdownCandidate(extractBodyHtml(document));
+
+  const markdown =
+    semanticMarkdown && startsWithPrimaryHeading(semanticMarkdown) && !startsWithPrimaryHeading(readabilityMarkdown ?? "")
+      ? semanticMarkdown
+      : readabilityMarkdown ?? semanticMarkdown ?? fallbackMarkdown;
+
+  if (!markdown) {
+    throw new ConversionError("No HTML body content found to convert.");
   }
 
   return `${markdown}\n`;
