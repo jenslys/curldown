@@ -21,9 +21,18 @@ const turndown = new TurndownService({
 });
 turndown.use(turndownPluginGfm.gfm);
 
+const tableCellTurndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+  bulletListMarker: "-",
+  emDelimiter: "_"
+});
+tableCellTurndown.use(turndownPluginGfm.gfm);
+
 const FALLBACK_BASE_URL = "https://curldown.local/";
 const PRIMARY_CONTENT_SELECTOR = "main, article, [role='main']";
 const MIN_PRIMARY_CONTENT_TEXT_LENGTH = 200;
+const COMPLEX_TABLE_CELL_SELECTOR = "ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, hr";
 
 function getNormalizedTextLength(value: string | null | undefined): number {
   return value?.replace(/\s+/g, " ").trim().length ?? 0;
@@ -33,6 +42,7 @@ function cleanupFragmentHtml(html: string): string {
   const $ = load(html);
 
   $(DEFAULT_REMOVE_SELECTORS.join(",")).remove();
+  normalizeComplexTables($);
 
   $("img").each((_, element) => {
     const alt = $(element).attr("alt")?.trim() ?? "";
@@ -55,6 +65,24 @@ function cleanupFragmentHtml(html: string): string {
   });
 
   return $.root().html() ?? "";
+}
+
+function normalizeComplexTables($: ReturnType<typeof load>): void {
+  $("table")
+    .find(`th:has(${COMPLEX_TABLE_CELL_SELECTOR}), td:has(${COMPLEX_TABLE_CELL_SELECTOR})`)
+    .each((_, cell) => {
+      const markdown = normalizeTableCellMarkdown(tableCellTurndown.turndown($(cell).html() ?? ""));
+      $(cell).empty().text(markdown);
+    });
+}
+
+function normalizeTableCellMarkdown(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .trim();
 }
 
 function extractBodyHtml(document: Document): string {

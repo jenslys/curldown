@@ -119,6 +119,78 @@ describe("transformHtmlToMarkdown", () => {
     expect(markdown).toContain("~~Deprecated~~ feature");
   });
 
+  it("strips interactive page chrome from primary content", () => {
+    const markdown = transformHtmlToMarkdown({
+      html: `
+        <html>
+          <body>
+            <main>
+              <h1>Guide Title</h1>
+              <div role="toolbar" aria-label="Actions">
+                <button>Ask about this page</button>
+                <button>Copy for LLM</button>
+                <button>View as Markdown</button>
+              </div>
+              <p>This is the content users actually want to keep.</p>
+              <p>Additional detail keeps the main content above the extraction threshold.</p>
+              <h2><span role="button">Anchor icon</span>Section</h2>
+            </main>
+          </body>
+        </html>
+      `
+    });
+
+    expect(markdown).toContain("# Guide Title");
+    expect(markdown).toContain("## Section");
+    expect(markdown).toContain("This is the content users actually want to keep.");
+    expect(markdown).not.toContain("Ask about this page");
+    expect(markdown).not.toContain("Copy for LLM");
+    expect(markdown).not.toContain("View as Markdown");
+    expect(markdown).not.toContain("Anchor icon");
+  });
+
+  it("normalizes complex table cells into markdown-safe text", () => {
+    const markdown = transformHtmlToMarkdown({
+      html: `
+        <html>
+          <body>
+            <main>
+              <h1>Supported resources</h1>
+              <p>This page contains a complex table that should still convert cleanly.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>code</code></td>
+                    <td>
+                      The customer-facing code. Valid characters include:
+                      <ul>
+                        <li>Lower case letters (a-z)</li>
+                        <li>Upper case letters (A-Z)</li>
+                        <li>Digits (0-9)</li>
+                      </ul>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </main>
+          </body>
+        </html>
+      `
+    });
+
+    expect(markdown).toContain("| Field | Description |");
+    expect(markdown).toContain("Valid characters include:");
+    expect(markdown).toContain("Valid characters include: - Lower case letters (a-z) - Upper case letters (A-Z) - Digits (0-9)");
+    expect(markdown).not.toContain("<table");
+    expect(markdown).not.toContain("joplin-table-wrapper");
+  });
+
   it("fails when body content is empty after cleanup", () => {
     expect(() =>
       transformHtmlToMarkdown({
