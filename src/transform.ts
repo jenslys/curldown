@@ -1,6 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import { load } from "cheerio";
-import { JSDOM } from "jsdom";
+import { DOMParser } from "linkedom";
 import { createRequire } from "node:module";
 import TurndownService from "turndown";
 
@@ -33,16 +33,47 @@ const FALLBACK_BASE_URL = "https://curldown.local/";
 const PRIMARY_CONTENT_SELECTOR = "main, article, [role='main']";
 const MIN_PRIMARY_CONTENT_TEXT_LENGTH = 200;
 const COMPLEX_TABLE_CELL_SELECTOR = "ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, hr";
+type ParsedDocument = Document;
 
 function getNormalizedTextLength(value: string | null | undefined): number {
   return value?.replace(/\s+/g, " ").trim().length ?? 0;
 }
 
-function cleanupFragmentHtml(html: string): string {
+function resolveUrl(value: string | undefined, baseUrl: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (!baseUrl) {
+    return value;
+  }
+
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return value;
+  }
+}
+
+function cleanupFragmentHtml(html: string, baseUrl: string | undefined): string {
   const $ = load(html);
 
   $(DEFAULT_REMOVE_SELECTORS.join(",")).remove();
   normalizeComplexTables($);
+
+  $("img").each((_, element) => {
+    const src = resolveUrl($(element).attr("src"), baseUrl);
+    if (src) {
+      $(element).attr("src", src);
+    }
+  });
+
+  $("a").each((_, element) => {
+    const href = resolveUrl($(element).attr("href"), baseUrl);
+    if (href) {
+      $(element).attr("href", href);
+    }
+  });
 
   $("img").each((_, element) => {
     const alt = $(element).attr("alt")?.trim() ?? "";
@@ -85,11 +116,11 @@ function normalizeTableCellMarkdown(markdown: string): string {
     .trim();
 }
 
-function extractBodyHtml(document: Document): string {
+function extractBodyHtml(document: ParsedDocument): string {
   return document.body?.innerHTML ?? document.documentElement?.innerHTML ?? "";
 }
 
-function selectSemanticPrimaryHtml(document: Document): string | undefined {
+function selectSemanticPrimaryHtml(document: ParsedDocument): string | undefined {
   const candidates = Array.from(document.querySelectorAll(PRIMARY_CONTENT_SELECTOR));
   const bestCandidate = candidates
     .map((element) => ({
@@ -106,7 +137,7 @@ function selectSemanticPrimaryHtml(document: Document): string | undefined {
   return bestCandidate.html;
 }
 
-function selectReadabilityHtml(document: Document): string | undefined {
+function selectReadabilityHtml(document: ParsedDocument): string | undefined {
   const article = new Readability(document).parse();
   if (!article || getNormalizedTextLength(article.textContent) === 0) {
     return undefined;
@@ -115,12 +146,12 @@ function selectReadabilityHtml(document: Document): string | undefined {
   return article.content ?? undefined;
 }
 
-function toMarkdownCandidate(html: string | undefined): string | undefined {
+function toMarkdownCandidate(html: string | undefined, baseUrl: string | undefined): string | undefined {
   if (!html) {
     return undefined;
   }
 
-  const cleanedHtml = cleanupFragmentHtml(html);
+  const cleanedHtml = cleanupFragmentHtml(html, baseUrl);
   if (cleanedHtml.trim().length === 0) {
     return undefined;
   }
@@ -140,6 +171,11 @@ function startsWithPrimaryHeading(markdown: string): boolean {
   return /^#\s+\S/.test(getFirstMeaningfulMarkdownLine(markdown) ?? "");
 }
 
+function parseDocument(html: string): ParsedDocument {
+  const normalizedHtml = /<html[\s>]/i.test(html) ? html : `<!doctype html><html>${html}</html>`;
+  return new DOMParser().parseFromString(normalizedHtml, "text/html") as unknown as ParsedDocument;
+}
+
 /**
  * Convert fetched HTML into markdown.
  * The function prefers semantic primary-content containers, falls back to
@@ -147,16 +183,12 @@ function startsWithPrimaryHeading(markdown: string): boolean {
  * no stronger content signal exists.
  */
 export function transformHtmlToMarkdown(input: TransformInput): string {
-  const dom = new JSDOM(input.html, {
-    url: input.url ?? FALLBACK_BASE_URL
-  });
-  const { document } = dom.window;
+  const baseUrl = input.url ?? FALLBACK_BASE_URL;
+  const document = parseDocument(input.html);
 
-  const semanticMarkdown = toMarkdownCandidate(selectSemanticPrimaryHtml(document));
-  const readabilityMarkdown = toMarkdownCandidate(
-    selectReadabilityHtml(new JSDOM(input.html, { url: input.url ?? FALLBACK_BASE_URL }).window.document)
-  );
-  const fallbackMarkdown = toMarkdownCandidate(extractBodyHtml(document));
+  const semanticMarkdown = toMarkdownCandidate(selectSemanticPrimaryHtml(document), baseUrl);
+  const readabilityMarkdown = toMarkdownCandidate(selectReadabilityHtml(parseDocument(input.html)), baseUrl);
+  const fallbackMarkdown = toMarkdownCandidate(extractBodyHtml(document), baseUrl);
 
   const markdown =
     semanticMarkdown && startsWithPrimaryHeading(semanticMarkdown) && !startsWithPrimaryHeading(readabilityMarkdown ?? "")

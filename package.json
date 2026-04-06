@@ -1,6 +1,6 @@
 {
   "name": "@jenslys/curldown",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Fetch URL content and convert it to markdown.",
   "repository": {
     "type": "git",
@@ -33,12 +33,11 @@
     "@mozilla/readability": "^0.6.0",
     "cheerio": "^1.2.0",
     "commander": "^14.0.3",
-    "jsdom": "^29.0.0",
+    "linkedom": "^0.18.12",
     "playwright": "^1.58.2",
     "turndown": "^7.2.2"
   },
   "devDependencies": {
-    "@types/jsdom": "^28.0.1",
     "@types/node": "^25.3.3",
     "@types/turndown": "^5.0.6",
     "typescript": "^5.9.3",
