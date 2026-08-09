@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium } from "playwright-chromium";
 
 import { DynamicError } from "./errors.js";
 import type { FetchInput, FetchResult } from "./types.js";

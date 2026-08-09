@@ -8,7 +8,7 @@ const newContext = vi.fn();
 const closeBrowser = vi.fn();
 const launch = vi.fn();
 
-vi.mock("playwright", () => ({
+vi.mock("playwright-chromium", () => ({
   chromium: {
     launch
   }

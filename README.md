@@ -16,6 +16,8 @@ Fetch a webpage and return clean Markdown for AI workflows.
 npm install -g @jenslys/curldown
 ```
 
+Dynamic mode installs the Chromium runtime with the package. If you are upgrading from `1.0.6`, reinstall the package or run `npx playwright install chromium` once.
+
 ## Quick Start
 
 ```bash
